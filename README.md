@@ -162,12 +162,8 @@ Trace:
 - check_warnings: Profile mixes low-valence mood with very high energy; recommendations may trade off heavily.
 ```
 
-## Reflection
+## Demo Video
 
-This project taught me that agentic behavior can be practical even without a large model: explicit planning, validation, and retry loops already improve reliability. It also reinforced that transparency and reproducibility are critical when presenting AI outputs to users.
+- Demo video (Loom): [Applied AI System Walkthrough](https://www.loom.com/share/5c23f0f2085a4657a1b645b6720eea58)
 
-## Portfolio artifact
-
-- GitHub link to code: `PASTE_YOUR_PUBLIC_GITHUB_REPO_URL_HERE`
-
-What this project says about me as an AI engineer: I can take a prototype and turn it into a reliable end-to-end AI system. I prioritize transparent decision logic, measurable quality, and practical guardrails, then back those choices with repeatable evaluation and tests. My engineering style emphasizes clarity, observable behavior, and honest communication about limitations.
+This project taught me that agentic behavior can be practical even without a large model: explicit planning, validation, and retry loops already improve reliability. It also reinforced that transparency and reproducibility are critical when presenting AI outputs to users. What this project says about me as an AI engineer is that I can take a prototype and turn it into a reliable end-to-end AI system by prioritizing transparent decision logic, measurable quality, and practical guardrails, then backing those choices with repeatable evaluation and tests.
