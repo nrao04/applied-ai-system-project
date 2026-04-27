@@ -164,6 +164,8 @@ Trace:
 
 ## Demo Video
 
-- Demo video (Loom): [Applied AI System Walkthrough](https://www.loom.com/share/5c23f0f2085a4657a1b645b6720eea58)
+[Applied AI System Walkthrough](https://www.loom.com/share/5c23f0f2085a4657a1b645b6720eea58)
+
+## What I learned
 
 This project taught me that agentic behavior can be practical even without a large model: explicit planning, validation, and retry loops already improve reliability. It also reinforced that transparency and reproducibility are critical when presenting AI outputs to users. What this project says about me as an AI engineer is that I can take a prototype and turn it into a reliable end-to-end AI system by prioritizing transparent decision logic, measurable quality, and practical guardrails, then backing those choices with repeatable evaluation and tests.
