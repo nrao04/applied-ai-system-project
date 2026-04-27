@@ -144,6 +144,30 @@ tests/test_recommender.py ..                         [100%]
 ==================== 5 passed in 0.01s =====================
 ```
 
+```text
+(.venv) $ python -m src.main --mode agentic --verbose-trace
+## High-energy pop (default)
+** Agent mode: genre_first ** (confidence=0.94, checks=3/3)
+Trace:
+- plan: selected mode=genre_first, diversity=True, artist_penalty=0.85, genre_penalty=0.40
+- act: attempt=1, produced_top_k=5
+- check: pass=True, confidence=0.94, checks=3/3
+
+## Adversarial — moody + max energy
+** Agent mode: energy_focused ** (confidence=0.74, checks=3/3)
+Trace:
+- plan: selected mode=energy_focused, diversity=True, artist_penalty=0.85, genre_penalty=0.40
+- act: attempt=1, produced_top_k=5
+- check: pass=True, confidence=0.74, checks=3/3
+- check_warnings: Profile mixes low-valence mood with very high energy; recommendations may trade off heavily.
+```
+
 ## Reflection
 
 This project taught me that agentic behavior can be practical even without a large model: explicit planning, validation, and retry loops already improve reliability. It also reinforced that transparency and reproducibility are critical when presenting AI outputs to users.
+
+## Portfolio artifact
+
+- GitHub link to code: `PASTE_YOUR_PUBLIC_GITHUB_REPO_URL_HERE`
+
+What this project says about me as an AI engineer: I can take a prototype and turn it into a reliable end-to-end AI system. I prioritize transparent decision logic, measurable quality, and practical guardrails, then back those choices with repeatable evaluation and tests. My engineering style emphasizes clarity, observable behavior, and honest communication about limitations.
