@@ -1,30 +1,19 @@
-"""
-Command line runner for the Music Recommender Simulation.
-
-Run from the project root:
-
-    python -m src.main
-"""
+"""Command line runner for the agentic music recommender."""
 
 from __future__ import annotations
 
+import argparse
+import logging
 from typing import Dict, List, Tuple
 
 from tabulate import tabulate
 
-from .recommender import (
-    DEFAULT_ARTIST_REPEAT_PENALTY,
-    DEFAULT_GENRE_REPEAT_PENALTY,
-    load_songs,
-    recommend_songs,
-    SCORING_MODES,
-)
+from .agent import RecommendationAgent
+from .recommender import load_songs
 
 
-def recommendations_table(
-    recs: List[Tuple[Dict, float, str]], tablefmt: str = "github"
-) -> str:
-    """Challenge 4: compact table with scores and full reason strings."""
+def recommendations_table(recs: List[Tuple[Dict, float, str]], tablefmt: str = "github") -> str:
+    """Compact table with scores and full reason strings."""
     rows = []
     for i, (song, score, expl) in enumerate(recs, start=1):
         rows.append([i, song["title"], song["artist"], f"{score:.2f}", expl])
@@ -36,7 +25,19 @@ def recommendations_table(
     )
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Agentic Music Recommender")
+    parser.add_argument("--mode", choices=["agentic", "baseline"], default="agentic")
+    parser.add_argument("--verbose-trace", action="store_true")
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+    logging.basicConfig(
+        level=logging.INFO if args.verbose_trace else logging.WARNING,
+        format="%(levelname)s %(name)s %(message)s",
+    )
     songs = load_songs("data/songs.csv")
     print(f"Loaded songs: {len(songs)}\n")
 
@@ -88,36 +89,37 @@ def main() -> None:
         },
     }
 
-    all_modes = ["balanced", "genre_first", "mood_first", "energy_focused"]
-    print("Available scoring modes:", ", ".join(sorted(SCORING_MODES.keys())))
-    print()
-
-    first = True
+    agent = RecommendationAgent()
     for label, user_prefs in profiles.items():
         print(f"## {label}")
-        modes = all_modes if first else ["balanced"]
-        for mode in modes:
-            recs = recommend_songs(
-                user_prefs, songs, k=5, scoring_mode=mode, apply_diversity=True
-            )
-            print(
-                f"\n** Mode: {mode} ** (diversity: −{DEFAULT_ARTIST_REPEAT_PENALTY:.2f} repeat artist, "
-                f"−{DEFAULT_GENRE_REPEAT_PENALTY:.2f} repeat genre)\n"
-            )
-            print(recommendations_table(recs))
-        first = False
-        print("\n")
+        if args.mode == "baseline":
+            from .recommender import recommend_songs
 
-    # Compact sanity demo: one profile, one mode — easy to screenshot.
-    slim = recommend_songs(
-        profiles["High-energy pop (default)"],
-        songs,
-        k=5,
-        scoring_mode="balanced",
-        apply_diversity=True,
-    )
-    print("--- Quick copy: pop profile, balanced + diversity ---\n")
-    print(recommendations_table(slim))
+            recs = recommend_songs(user_prefs, songs, k=5, scoring_mode="balanced", apply_diversity=True)
+            print("\n** Baseline mode: balanced + diversity **\n")
+            print(recommendations_table(recs))
+            print()
+            continue
+
+        result = agent.run(user_prefs=user_prefs, songs=songs, k=5)
+        print(
+            f"\n** Agent mode: {result.strategy.scoring_mode} ** "
+            f"(confidence={result.guardrails.confidence:.2f}, checks={result.guardrails.checks_passed}/{result.guardrails.checks_total})\n"
+        )
+        print(recommendations_table(result.recommendations))
+        if args.verbose_trace:
+            print("\nTrace:")
+            for step in result.trace:
+                print(f"- {step}")
+        if result.guardrails.failures:
+            print("\nGuardrail failures:")
+            for failure in result.guardrails.failures:
+                print(f"- {failure}")
+        if result.guardrails.warnings:
+            print("\nGuardrail warnings:")
+            for warning in result.guardrails.warnings:
+                print(f"- {warning}")
+        print("\n")
 
 
 if __name__ == "__main__":

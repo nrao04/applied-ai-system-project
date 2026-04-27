@@ -1,56 +1,58 @@
-# Model card: Mixtape Scorer (classroom sim)
+# Model Card - Agentic Music Recommender
 
-## 1. Model name
+## System summary
 
-**Mixtape Scorer** — a deterministic, content-based song ranker for a toy catalog.
+This system recommends songs from a local CSV catalog using deterministic scoring plus an agentic orchestration layer (`plan -> act -> check -> repair`). The base scorer prioritizes genre, mood, energy alignment, and acoustic preference with optional advanced signals. The agent adds strategy selection, guardrail validation, confidence scoring, and retry behavior.
 
-## 2. Intended use
+## Intended use
 
-- **What it does:** Given a tiny CSV of songs and a short list of preferences (genre, mood, target energy, acoustic vs produced), it scores every song with fixed rules and prints the top K with explanations.  
-- **Who it is for:** Students and anyone learning how “recommendations” can mean little more than weighted arithmetic on metadata.  
-- **What it is not:** A production recommender. It does not personalize from listening history, does not model fairness across groups, and should not be used to make real business or editorial decisions.
+- Educational demonstration of applied AI system design.
+- Small-scale, transparent recommendation experiments.
+- Reliability testing with predefined user preference cases.
 
-## 3. How the model works
+Not intended for production personalization, high-stakes ranking, or sensitive decision support.
 
-Each song is described by genre, mood, several 0–1 audio-ish features (energy, valence, danceability, acousticness), tempo, plus extra columns used in the stretch build: popularity (0–100), release decade, pipe-separated mood tags, a coarse lyric theme, and language. The user passes the usual genre/mood/energy/acoustic prefs and can add optional targets (e.g. target popularity, decade, favorite mood tags, lyric theme, language) so those fields contribute. The scorer adds points when genre or mood lines up, when energy is close to the target, and for acoustic vs produced taste. Optional valence/danceability in the prefs dict use the same “closer is better” idea.
+## Base project origin (Modules 1-3)
 
-There are also **scoring modes** (`balanced`, `genre_first`, `mood_first`, `energy_focused`) that scale how much each signal weighs—same rules, different emphasis. After scoring, an optional **diversity** step fills the top K greedily while penalizing repeat artists and repeat genres so one label does not dominate the shortlist.
+Original project: **Music Recommender Simulation (Module 3)**.  
+Original capability: rank songs by weighted preferences and print explanation strings for each recommendation.  
+Extension in final project: add agentic loop, guardrails, confidence, and reliability harness.
 
-There is no training step; changing behavior means changing weights, mode, or the CSV.
+## Reliability and testing
 
-## 4. Data
+- Unit tests:
+  - recommendation ordering and non-empty explanations,
+  - agent run trace/metadata integrity,
+  - guardrail warning and diversity failure checks.
+- Evaluation script:
+  - executes predefined profiles,
+  - reports pass/fail count, average confidence, and failing cases.
 
-- **Size:** 18 fictional rows in `data/songs.csv` (10 starter tracks + 8 added for variety).  
-- **Columns:** Original audio-ish fields plus popularity, release decade, mood tags, lyric theme, and language for the extended scorer.  
-- **Limit:** Everything is synthetic; it still skips real-world mess (real charts, rights, listening logs, lyrics NLP, demographics). Explicit lyrics and “true” regional charts are not modeled.
+## Limitations and bias
 
-## 5. Strengths
+- Dataset is small and synthetic, so exposure bias is likely.
+- Heavier genre weighting can create filter-bubble behavior.
+- Confidence score is heuristic and may overestimate quality on narrow catalogs.
+- Guardrails evaluate ranking quality, not fairness across demographic groups.
 
-- **Glass box:** Every point has a printed reason, which is rare in large production systems but great for a classroom.  
-- **Sensible defaults for the cliché “happy pop gym” profile:** High energy + happy tends to bubble up danceable, produced pop before ambient classical—matches everyday intuition.  
-- **Cheap to run:** No API keys, no GPU jobs—helpful when the learning goal is the *idea* of scoring, not scaling.
+## Misuse risks and mitigations
 
-## 6. Limitations and bias
+- **Risk:** users interpret deterministic scores as objective quality.
+  - **Mitigation:** provide reason strings, confidence values, and warnings.
+- **Risk:** overfitting behavior to one genre cluster.
+  - **Mitigation:** enforce genre diversity checks and repair strategy.
+- **Risk:** deploying beyond intended educational scope.
+  - **Mitigation:** explicit non-production constraints in docs and card.
 
-The scorer can build a **filter bubble** because genre carries the largest discrete bonus and the dataset is small. A user who only states “pop” may never see the Latin or hip-hop row even if mood and energy fit, simply because those two points for genre are doing a lot of work. Energy closeness helps, but it cannot invent diversity that is not already in the spreadsheet. During testing, the “high-energy pop” profile kept **Gym Hero** and **Sunrise City** near the top—not because the code is “wrong,” but because both sit in the pop/indie-pop cluster with upbeat valence and production that matches someone who dislikes acoustic mixes. If 40% of the CSV were pop, a naive deployment would *look* smart while mostly recycling the same bucket.
+## Reliability surprise
 
-## 7. Evaluation
+The contradictory profile (`moody` with very high energy) still produced plausible top songs, but confidence dropped and warnings became essential for interpretation. This confirmed that recommendation quality can look acceptable while preference coherence is weak.
 
-I ran four preference sketches in `src/main.py`: upbeat pop, chill lofi, intense rock, and a deliberately contradictory “moody + nearly max energy” profile. For each, I read the top five lines and checked whether the winners matched the stated knobs. The adversarial profile behaved as a gut-check: mood still fired on **Night Drive Loop**, but pure energy + genre matches from **Gym Hero** took first, which shows how conflicting preferences turn into trade-offs instead of magic.  
+## AI collaboration reflection
 
-I also ran a **weight experiment** (see README): halving genre weight and doubling the energy cap moved who won second place even when the winner stayed pop, which matched my expectation that the list is sensitive to constants.
+- **Helpful AI suggestion:** using a structured `plan/act/check/repair` loop improved both explainability and debugging compared with a single-pass ranker.
+- **Flawed AI suggestion:** an early idea pushed confidence thresholds too aggressively, which caused false failures on valid but narrow profiles; thresholds were tuned down after test runs.
 
-Automated checks: `pytest` covers that the OOP `Recommender` ranks the seeded pop/happy track above the lofi row and that explanations are non-empty strings.
+## Ethical reflection
 
-## 8. Future work
-
-- Stronger **fairness / exposure** metrics (not just artist/genre diversity in top K).  
-- **Soft genre blends** or multi-label genres instead of one string plus substring hacks.  
-- A tiny **collaborative** stub (two fake user histories) to contrast with the pure content score.  
-- Richer **evaluation** (held-out prefs, human ratings) beyond eyeballing tables.
-
-## 9. Personal reflection
-
-The part that stuck with me is how quickly a simple score can *feel* like taste, even when it is only four or five numbers. I did not need neural nets to see “personalization”; I needed clear features and weights. The catch is that those weights are hidden product decisions in real apps—here they are just Python constants, which is both empowering and a little alarming.
-
-Using autocomplete-style tools sped up boilerplate (CSV typing, sorting snippets) but I still had to decide what counted as a “genre match” and whether substring matching was fair. The tools could not tell me whether +2 for genre was ethical, only convenient. If I extended this, I would graph catalog balance before touching the algorithm again, because fixing skewed data beats tweaking softmax every time.
+The system is transparent but still encodes subjective assumptions through scoring weights and thresholds. Responsible use requires documenting these assumptions, measuring failure patterns, and warning users when profile constraints conflict or context is too limited.

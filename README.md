@@ -1,378 +1,149 @@
-# Music Recommender Simulation
+# Agentic Music Recommendation System
 
-## What this is
+This project extends my Module 3 base project, **Music Recommender Simulation**. The original version ranked songs from a CSV using weighted rules (genre, mood, energy, acoustic preference) and printed transparent reasons for each score. It was deterministic and explainable, but it did not include an agent loop, reliability checks, or structured evaluation.
 
-It’s a fake recommender: songs live in a CSV, your “user” is a small dict of preferences, and the program just adds points and sorts. No training step, no API. I like that because you can read `score_song` and actually see why something ranked where it did.
+The final version adds an **agentic workflow** that plans strategy, runs recommendations, validates outputs with guardrails, and repairs strategy when checks fail.
 
-Spotify-style apps mix **collaborative** stuff (people like you) with **content** stuff (tempo, mood, etc.). This project is content-only, so it’s more like “match my tags” than “learn from the crowd.”
+## Why this matters
 
----
+A recommender that only ranks can still produce brittle results. This build focuses on trust: intermediate trace steps, confidence scoring, validation checks, and repeatable evaluation so behavior is measurable, not just subjective.
 
-## How it works (quick version)
+## Repository structure
 
-**What’s in each song row:** the usual suspects (genre, mood, energy, tempo, valence, danceability, acousticness) plus a few extras I added for the stretch goals: popularity 0–100, release decade, mood tags separated with `|`, a rough `lyric_theme`, and `language`. If your prefs dict includes things like `target_popularity` or `favorite_mood_tags`, those columns start affecting the score too. All the nitty-gritty is in `src/recommender.py`.
+- `src/recommender.py` - core deterministic scoring engine.
+- `src/agent.py` - plan/act/check/repair orchestration.
+- `src/guardrails.py` - confidence scoring + validation checks.
+- `src/main.py` - end-to-end CLI demo (agentic or baseline mode).
+- `src/evaluate.py` - reliability harness over predefined scenarios.
+- `tests/` - unit tests for recommender and agentic behavior.
+- `assets/system_architecture.md` - architecture diagram.
+- `model_card.md` - ethics, reliability, and AI collaboration reflection.
 
-**How we represent a user:**  
-Either a plain dict (what `main.py` uses) or the `UserProfile` class the tests use. Same scoring underneath.
-
-**Rough scoring idea:** points if genre lines up (I allow substring stuff so “pop” can still hit “indie pop”), points if mood matches exactly, more points if energy is *close* to what you asked for (not just “higher = better”). There’s optional valence/danceability if you add those keys. `likes_acoustic` nudges scores toward acoustic vs produced tracks.
-
-After scoring, we sort. There’s also an optional **diversity** step so the top K doesn’t fill up with the same artist or genre over and over. The CLI prints **tables** (using `tabulate`) with a Reasons column so you’re not guessing.
-
-### Stretch / optional pieces
-
-I bundled four extras: extra CSV fields + math for them, a few **modes** (`balanced`, `genre_first`, `mood_first`, `energy_focused`) that scale how much each kind of signal matters, the diversity penalty above, and the table output. First profile in `main.py` runs all four modes so you can compare; the other profiles just use balanced so the terminal doesn’t go forever.
-
-### Flow (Mermaid)
+## Architecture overview
 
 ```mermaid
-flowchart LR
-  CSV[data/songs.csv] --> LOAD[load_songs]
-  LOAD --> CATALOG[List of song dicts]
-  PREFS[User preferences] --> SCORE[score_song per song]
-  CATALOG --> SCORE
-  SCORE --> PAIRS[(song, score, reasons)]
-  PAIRS --> SORT[Sort by score desc]
-  SORT --> TOP[Top K recommendations]
+flowchart TD
+  userInput[UserProfileInput] --> planner[AgentPlanner]
+  planner --> recommenderCore[RecommendationCore]
+  recommenderCore --> candidateSet[TopKCandidates]
+  candidateSet --> validator[GuardrailValidator]
+  validator -->|pass| responseBuilder[ResponseBuilder]
+  validator -->|fail| strategyAdjuster[StrategyAdjuster]
+  strategyAdjuster --> recommenderCore
+  responseBuilder --> output[RecommendationsPlusTraceConfidence]
+  output --> humanReview[HumanReviewAndEvaluation]
+  humanReview --> evalHarness[EvaluationScript]
 ```
 
-**One bias to keep in mind:** genre still carries a lot of weight. If the CSV is mostly one style, that style will keep winning even when mood or energy would have pointed somewhere else.
+Agent loop:
+1. **Plan** selects scoring mode + diversity strategy from user profile.
+2. **Act** generates top-k recommendations.
+3. **Check** validates confidence and diversity guardrails.
+4. **Repair** retries with adjusted strategy if checks fail.
 
----
+## Setup instructions
 
-## Setup
+From the repository root:
 
 ```bash
-cd ai110-module3show-musicrecommendersimulation-starter
 python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Run from the repo root (folder that has `data/` and `src/`):
+## Run the system
+
+### Agentic workflow (recommended)
 
 ```bash
-python -m src.main
+python -m src.main --mode agentic --verbose-trace
 ```
 
-You should see something like `Loaded songs: 18`, then tables for different profiles.
-
-Tests:
+For cleaner demo output without trace/log detail:
 
 ```bash
-pytest
+python -m src.main --mode agentic
 ```
 
----
+### Baseline comparison (non-agentic)
 
-## Sample output (`python -m src.main`)
+```bash
+python -m src.main --mode baseline
+```
 
-Captured from a local run with the bundled `data/songs.csv` and current weights. If you change scores or data, re-run and replace this block (or paste your own terminal).
+### Reliability evaluation harness
+
+```bash
+python -m src.evaluate
+```
+
+### Tests
+
+```bash
+python -m pytest
+```
+
+## Sample interactions (agentic mode)
+
+### Case 1: High-energy pop user
+- Input profile: `genre=pop`, `mood=happy`, `energy=0.8`, `likes_acoustic=False`
+- Output behavior: planner picks `energy_focused` or `genre_first` based on profile shape.
+- Result: high-energy pop songs appear first; confidence and guardrail checks are reported with the final table.
+
+### Case 2: Chill lofi user
+- Input profile: `genre=lofi`, `mood=chill`, `energy=0.35`, `likes_acoustic=True`
+- Output behavior: planner emphasizes mood alignment and acoustic preference.
+- Result: low-energy acoustic tracks rank highest with transparent scoring reasons.
+
+### Case 3: Adversarial profile (moody + very high energy)
+- Input profile: `mood=moody`, `energy=0.95`
+- Output behavior: guardrails emit a contradiction warning and confidence is still calculated.
+- Result: agent returns best trade-off list and includes warning text in trace.
+
+## Design decisions and trade-offs
+
+- **Deterministic core + agent wrapper:** keeps scoring explainable while adding adaptive orchestration.
+- **Guardrails are simple and auditable:** genre diversity, top-score quality, and confidence threshold; not a black-box confidence estimator.
+- **Repair strategy is conservative:** fallback to `balanced` mode with stronger diversity penalties to avoid unstable oscillation.
+- **No external API dependencies:** reproducible locally, but less expressive than LLM-powered planners.
+
+## Reliability/testing summary
+
+- Verified run results:
+  - `python -m pytest` -> **5 passed**
+  - `python -m src.evaluate` -> **3/3 scenarios passed**, **0 failures**
+  - Average confidence across evaluation cases: **0.72**
+- Reliability checks include genre diversity, minimum top-score quality, and a confidence threshold.
+- Contradictory profiles (example: moody + very high energy) produce explicit warnings in the trace while still returning recommendations.
+
+## Exact output snapshot
 
 ```text
+(.venv) $ python -m src.evaluate
 Loading songs from data/songs.csv...
-Loaded songs: 18
+[high_energy_pop] pass=True confidence=0.73 checks=3/3 attempts=1
+[chill_lofi] pass=True confidence=0.72 checks=3/3 attempts=1
+[adversarial_moody_high_energy] pass=True confidence=0.71 checks=3/3 attempts=1
 
-Available scoring modes: balanced, energy_focused, genre_first, mood_first
-
-## High-energy pop (default)
-
-** Mode: balanced ** (diversity: −0.85 repeat artist, −0.40 repeat genre)
-
-|   # | Title             | Artist        |   Score | Reasons                                                 |
-|-----|-------------------|---------------|---------|---------------------------------------------------------|
-|   1 | Sunrise City      | Neon Echo     |    9.82 | genre match (+2.00); mood match (+1.00); energy         |
-|     |                   |               |         | alignment (+1.96; gap 0.02 from target 0.80); prefers   |
-|     |                   |               |         | produced/electric (+0.98); popularity fit (+0.69; song  |
-|     |                   |               |         | 78 vs target 70); era fit (+1.10; decade 2020 vs target |
-|     |                   |               |         | 2020); mood tags overlap ['euphoric', 'nostalgic']      |
-|     |                   |               |         | (+0.84); lyric theme match (+0.90); language match      |
-|     |                   |               |         | (+0.35)                                                 |
-|   2 | Rooftop Lights    | Indigo Parade |    8.29 | genre match (+2.00); mood match (+1.00); energy         |
-|     |                   |               |         | alignment (+1.92; gap 0.04 from target 0.80); prefers   |
-|     |                   |               |         | produced/electric (+0.78); popularity fit (+0.72; song  |
-|     |                   |               |         | 66 vs target 70); era fit (+1.10; decade 2023 vs target |
-|     |                   |               |         | 2020); mood tags overlap ['euphoric'] (+0.42); language |
-|     |                   |               |         | match (+0.35)                                           |
-|   3 | Gym Hero          | Max Pulse     |    7.37 | genre match (+2.00); energy alignment (+1.74; gap 0.13  |
-|     |                   |               |         | from target 0.80); prefers produced/electric (+1.14);   |
-|     |                   |               |         | popularity fit (+0.61; song 88 vs target 70); era fit   |
-|     |                   |               |         | (+1.10; decade 2022 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['euphoric'] (+0.42); language match (+0.35)            |
-|   4 | Battery Heart     | K7 Vega       |    6.37 | energy alignment (+1.84; gap 0.08 from target 0.80);    |
-|     |                   |               |         | prefers produced/electric (+1.10); popularity fit       |
-|     |                   |               |         | (+0.65; song 83 vs target 70); era fit (+1.10; decade   |
-|     |                   |               |         | 2021 vs target 2020); mood tags overlap ['euphoric']    |
-|     |                   |               |         | (+0.42); lyric theme match (+0.90); language match      |
-|     |                   |               |         | (+0.35)                                                 |
-|   5 | Samba Cartography | Lua Vermelha  |    6.14 | mood match (+1.00); energy alignment (+1.84; gap 0.08   |
-|     |                   |               |         | from target 0.80); prefers produced/electric (+1.06);   |
-|     |                   |               |         | popularity fit (+0.72; song 74 vs target 70); era fit   |
-|     |                   |               |         | (+1.10; decade 2022 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['euphoric'] (+0.42)                                    |
-
-** Mode: genre_first ** (diversity: −0.85 repeat artist, −0.40 repeat genre)
-
-|   # | Title             | Artist        |   Score | Reasons                                                 |
-|-----|-------------------|---------------|---------|---------------------------------------------------------|
-|   1 | Sunrise City      | Neon Echo     |   10.05 | genre match (+3.10); mood match (+0.72); energy         |
-|     |                   |               |         | alignment (+1.72; gap 0.02 from target 0.80); prefers   |
-|     |                   |               |         | produced/electric (+0.93); popularity fit (+0.63; song  |
-|     |                   |               |         | 78 vs target 70); era fit (+1.01; decade 2020 vs target |
-|     |                   |               |         | 2020); mood tags overlap ['euphoric', 'nostalgic']      |
-|     |                   |               |         | (+0.77); lyric theme match (+0.83); language match      |
-|     |                   |               |         | (+0.32)                                                 |
-|   2 | Rooftop Lights    | Indigo Parade |    8.63 | genre match (+3.10); mood match (+0.72); energy         |
-|     |                   |               |         | alignment (+1.69; gap 0.04 from target 0.80); prefers   |
-|     |                   |               |         | produced/electric (+0.74); popularity fit (+0.66; song  |
-|     |                   |               |         | 66 vs target 70); era fit (+1.01; decade 2023 vs target |
-|     |                   |               |         | 2020); mood tags overlap ['euphoric'] (+0.39); language |
-|     |                   |               |         | match (+0.32)                                           |
-|   3 | Gym Hero          | Max Pulse     |    8    | genre match (+3.10); energy alignment (+1.53; gap 0.13  |
-|     |                   |               |         | from target 0.80); prefers produced/electric (+1.08);   |
-|     |                   |               |         | popularity fit (+0.57; song 88 vs target 70); era fit   |
-|     |                   |               |         | (+1.01; decade 2022 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['euphoric'] (+0.39); language match (+0.32)            |
-|   4 | Battery Heart     | K7 Vega       |    5.82 | energy alignment (+1.62; gap 0.08 from target 0.80);    |
-|     |                   |               |         | prefers produced/electric (+1.05); popularity fit       |
-|     |                   |               |         | (+0.60; song 83 vs target 70); era fit (+1.01; decade   |
-|     |                   |               |         | 2021 vs target 2020); mood tags overlap ['euphoric']    |
-|     |                   |               |         | (+0.39); lyric theme match (+0.83); language match      |
-|     |                   |               |         | (+0.32)                                                 |
-|   5 | Samba Cartography | Lua Vermelha  |    5.4  | mood match (+0.72); energy alignment (+1.62; gap 0.08   |
-|     |                   |               |         | from target 0.80); prefers produced/electric (+1.00);   |
-|     |                   |               |         | popularity fit (+0.66; song 74 vs target 70); era fit   |
-|     |                   |               |         | (+1.01; decade 2022 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['euphoric'] (+0.39)                                    |
-
-** Mode: mood_first ** (diversity: −0.85 repeat artist, −0.40 repeat genre)
-
-|   # | Title             | Artist        |   Score | Reasons                                                 |
-|-----|-------------------|---------------|---------|---------------------------------------------------------|
-|   1 | Sunrise City      | Neon Echo     |    9.59 | genre match (+1.56); mood match (+1.60); energy         |
-|     |                   |               |         | alignment (+1.76; gap 0.02 from target 0.80); prefers   |
-|     |                   |               |         | produced/electric (+0.98); popularity fit (+0.66; song  |
-|     |                   |               |         | 78 vs target 70); era fit (+1.04; decade 2020 vs target |
-|     |                   |               |         | 2020); mood tags overlap ['euphoric', 'nostalgic']      |
-|     |                   |               |         | (+0.80); lyric theme match (+0.85); language match      |
-|     |                   |               |         | (+0.33)                                                 |
-|   2 | Rooftop Lights    | Indigo Parade |    8.13 | genre match (+1.56); mood match (+1.60); energy         |
-|     |                   |               |         | alignment (+1.73; gap 0.04 from target 0.80); prefers   |
-|     |                   |               |         | produced/electric (+0.78); popularity fit (+0.68; song  |
-|     |                   |               |         | 66 vs target 70); era fit (+1.04; decade 2023 vs target |
-|     |                   |               |         | 2020); mood tags overlap ['euphoric'] (+0.40); language |
-|     |                   |               |         | match (+0.33)                                           |
-|   3 | Gym Hero          | Max Pulse     |    6.63 | genre match (+1.56); energy alignment (+1.57; gap 0.13  |
-|     |                   |               |         | from target 0.80); prefers produced/electric (+1.14);   |
-|     |                   |               |         | popularity fit (+0.58; song 88 vs target 70); era fit   |
-|     |                   |               |         | (+1.04; decade 2022 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['euphoric'] (+0.40); language match (+0.33)            |
-|   4 | Samba Cartography | Lua Vermelha  |    6.44 | mood match (+1.60); energy alignment (+1.66; gap 0.08   |
-|     |                   |               |         | from target 0.80); prefers produced/electric (+1.06);   |
-|     |                   |               |         | popularity fit (+0.68; song 74 vs target 70); era fit   |
-|     |                   |               |         | (+1.04; decade 2022 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['euphoric'] (+0.40)                                    |
-|   5 | Battery Heart     | K7 Vega       |    6.01 | energy alignment (+1.66; gap 0.08 from target 0.80);    |
-|     |                   |               |         | prefers produced/electric (+1.10); popularity fit       |
-|     |                   |               |         | (+0.62; song 83 vs target 70); era fit (+1.04; decade   |
-|     |                   |               |         | 2021 vs target 2020); mood tags overlap ['euphoric']    |
-|     |                   |               |         | (+0.40); lyric theme match (+0.85); language match      |
-|     |                   |               |         | (+0.33)                                                 |
-
-** Mode: energy_focused ** (diversity: −0.85 repeat artist, −0.40 repeat genre)
-
-|   # | Title             | Artist        |   Score | Reasons                                                 |
-|-----|-------------------|---------------|---------|---------------------------------------------------------|
-|   1 | Sunrise City      | Neon Echo     |    9.92 | genre match (+1.64); mood match (+0.82); energy         |
-|     |                   |               |         | alignment (+3.04; gap 0.02 from target 0.80); prefers   |
-|     |                   |               |         | produced/electric (+0.93); popularity fit (+0.62; song  |
-|     |                   |               |         | 78 vs target 70); era fit (+0.99; decade 2020 vs target |
-|     |                   |               |         | 2020); mood tags overlap ['euphoric', 'nostalgic']      |
-|     |                   |               |         | (+0.76); lyric theme match (+0.81); language match      |
-|     |                   |               |         | (+0.32)                                                 |
-|   2 | Rooftop Lights    | Indigo Parade |    8.51 | genre match (+1.64); mood match (+0.82); energy         |
-|     |                   |               |         | alignment (+2.98; gap 0.04 from target 0.80); prefers   |
-|     |                   |               |         | produced/electric (+0.74); popularity fit (+0.65; song  |
-|     |                   |               |         | 66 vs target 70); era fit (+0.99; decade 2023 vs target |
-|     |                   |               |         | 2020); mood tags overlap ['euphoric'] (+0.38); language |
-|     |                   |               |         | match (+0.32)                                           |
-|   3 | Gym Hero          | Max Pulse     |    7.66 | genre match (+1.64); energy alignment (+2.70; gap 0.13  |
-|     |                   |               |         | from target 0.80); prefers produced/electric (+1.08);   |
-|     |                   |               |         | popularity fit (+0.55; song 88 vs target 70); era fit   |
-|     |                   |               |         | (+0.99; decade 2022 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['euphoric'] (+0.38); language match (+0.32)            |
-|   4 | Battery Heart     | K7 Vega       |    6.98 | energy alignment (+2.85; gap 0.08 from target 0.80);    |
-|     |                   |               |         | prefers produced/electric (+1.05); popularity fit       |
-|     |                   |               |         | (+0.59; song 83 vs target 70); era fit (+0.99; decade   |
-|     |                   |               |         | 2021 vs target 2020); mood tags overlap ['euphoric']    |
-|     |                   |               |         | (+0.38); lyric theme match (+0.81); language match      |
-|     |                   |               |         | (+0.32)                                                 |
-|   5 | Samba Cartography | Lua Vermelha  |    6.69 | mood match (+0.82); energy alignment (+2.85; gap 0.08   |
-|     |                   |               |         | from target 0.80); prefers produced/electric (+1.00);   |
-|     |                   |               |         | popularity fit (+0.65; song 74 vs target 70); era fit   |
-|     |                   |               |         | (+0.99; decade 2022 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['euphoric'] (+0.38)                                    |
-
-
-## Chill lofi room
-
-** Mode: balanced ** (diversity: −0.85 repeat artist, −0.40 repeat genre)
-
-|   # | Title              | Artist         |   Score | Reasons                                                  |
-|-----|--------------------|----------------|---------|----------------------------------------------------------|
-|   1 | Midnight Coding    | LoRoom         |    9.58 | genre match (+2.00); mood match (+1.00); energy          |
-|     |                    |                |         | alignment (+1.86; gap 0.07 from target 0.35); prefers    |
-|     |                    |                |         | acoustic (+0.85); popularity fit (+0.67; song 55 vs      |
-|     |                    |                |         | target 45); era fit (+1.10; decade 2019 vs target 2020); |
-|     |                    |                |         | mood tags overlap ['calm', 'focused'] (+0.84); lyric     |
-|     |                    |                |         | theme match (+0.90); language match (+0.35)              |
-|   2 | Library Rain       | Paper Lanterns |    9.53 | genre match (+2.00); mood match (+1.00); energy          |
-|     |                    |                |         | alignment (+2.00; gap 0.00 from target 0.35); prefers    |
-|     |                    |                |         | acoustic (+1.03); popularity fit (+0.73; song 48 vs      |
-|     |                    |                |         | target 45); era fit (+1.10; decade 2021 vs target 2020); |
-|     |                    |                |         | mood tags overlap ['calm'] (+0.42); lyric theme match    |
-|     |                    |                |         | (+0.90); language match (+0.35)                          |
-|   3 | Focus Flow         | LoRoom         |    7.82 | genre match (+2.00); energy alignment (+1.90; gap 0.05   |
-|     |                    |                |         | from target 0.35); prefers acoustic (+0.94); popularity  |
-|     |                    |                |         | fit (+0.70; song 52 vs target 45); era fit (+1.10;       |
-|     |                    |                |         | decade 2020 vs target 2020); mood tags overlap ['calm',  |
-|     |                    |                |         | 'focused'] (+0.84); language match (+0.35)               |
-|   4 | Rain on Tin Roof   | The Mayhews    |    6.66 | mood match (+1.00); energy alignment (+1.92; gap 0.04    |
-|     |                    |                |         | from target 0.35); prefers acoustic (+1.13); popularity  |
-|     |                    |                |         | fit (+0.74; song 44 vs target 45); era fit (+1.10;       |
-|     |                    |                |         | decade 2018 vs target 2020); mood tags overlap ['calm']  |
-|     |                    |                |         | (+0.42); language match (+0.35)                          |
-|   5 | Spacewalk Thoughts | Orbit Bloom    |    6.55 | mood match (+1.00); energy alignment (+1.86; gap 0.07    |
-|     |                    |                |         | from target 0.35); prefers acoustic (+1.10); popularity  |
-|     |                    |                |         | fit (+0.72; song 41 vs target 45); era fit (+1.10;       |
-|     |                    |                |         | decade 2017 vs target 2020); mood tags overlap ['calm']  |
-|     |                    |                |         | (+0.42); language match (+0.35)                          |
-
-
-## Deep intense rock
-
-** Mode: balanced ** (diversity: −0.85 repeat artist, −0.40 repeat genre)
-
-|   # | Title             | Artist        |   Score | Reasons                                                 |
-|-----|-------------------|---------------|---------|---------------------------------------------------------|
-|   1 | Storm Runner      | Voltline      |    9.98 | genre match (+2.00); mood match (+1.00); energy         |
-|     |                   |               |         | alignment (+1.98; gap 0.01 from target 0.90); prefers   |
-|     |                   |               |         | produced/electric (+1.08); popularity fit (+0.73; song  |
-|     |                   |               |         | 62 vs target 65); era fit (+1.10; decade 2018 vs target |
-|     |                   |               |         | 2020); mood tags overlap ['aggressive', 'euphoric']     |
-|     |                   |               |         | (+0.84); lyric theme match (+0.90); language match      |
-|     |                   |               |         | (+0.35)                                                 |
-|   2 | Redline Tesseract | Iron Circuit  |    6.95 | mood match (+1.00); energy alignment (+1.88; gap 0.06   |
-|     |                   |               |         | from target 0.90); prefers produced/electric (+1.15);   |
-|     |                   |               |         | popularity fit (+0.63; song 81 vs target 65); era fit   |
-|     |                   |               |         | (+1.10; decade 2023 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['aggressive', 'euphoric'] (+0.84); language match      |
-|     |                   |               |         | (+0.35)                                                 |
-|   3 | Gym Hero          | Max Pulse     |    6.95 | mood match (+1.00); energy alignment (+1.94; gap 0.03   |
-|     |                   |               |         | from target 0.90); prefers produced/electric (+1.14);   |
-|     |                   |               |         | popularity fit (+0.58; song 88 vs target 65); era fit   |
-|     |                   |               |         | (+1.10; decade 2022 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['aggressive', 'euphoric'] (+0.84); language match      |
-|     |                   |               |         | (+0.35)                                                 |
-|   4 | Battery Heart     | K7 Vega       |    5.97 | energy alignment (+1.96; gap 0.02 from target 0.90);    |
-|     |                   |               |         | prefers produced/electric (+1.10); popularity fit       |
-|     |                   |               |         | (+0.61; song 83 vs target 65); era fit (+1.10; decade   |
-|     |                   |               |         | 2021 vs target 2020); mood tags overlap ['aggressive',  |
-|     |                   |               |         | 'euphoric'] (+0.84); language match (+0.35)             |
-|   5 | Rooftop Lights    | Indigo Parade |    5.11 | energy alignment (+1.72; gap 0.14 from target 0.90);    |
-|     |                   |               |         | prefers produced/electric (+0.78); popularity fit       |
-|     |                   |               |         | (+0.74; song 66 vs target 65); era fit (+1.10; decade   |
-|     |                   |               |         | 2023 vs target 2020); mood tags overlap ['euphoric']    |
-|     |                   |               |         | (+0.42); language match (+0.35)                         |
-
-
-## Adversarial — moody + max energy
-
-** Mode: balanced ** (diversity: −0.85 repeat artist, −0.40 repeat genre)
-
-|   # | Title            | Artist        |   Score | Reasons                                                |
-|-----|------------------|---------------|---------|--------------------------------------------------------|
-|   1 | Sunrise City     | Neon Echo     |    7.81 | genre match (+2.00); energy alignment (+1.74; gap 0.13 |
-|     |                  |               |         | from target 0.95); prefers produced/electric (+0.98);  |
-|     |                  |               |         | popularity fit (+0.73; song 78 vs target 80); era fit  |
-|     |                  |               |         | (+1.10; decade 2020 vs target 2021); lyric theme match |
-|     |                  |               |         | (+0.90); language match (+0.35)                        |
-|   2 | Gym Hero         | Max Pulse     |    7.24 | genre match (+2.00); energy alignment (+1.96; gap 0.02 |
-|     |                  |               |         | from target 0.95); prefers produced/electric (+1.14);  |
-|     |                  |               |         | popularity fit (+0.69; song 88 vs target 80); era fit  |
-|     |                  |               |         | (+1.10; decade 2022 vs target 2021); language match    |
-|     |                  |               |         | (+0.35)                                                |
-|   3 | Night Drive Loop | Neon Echo     |    6.99 | mood match (+1.00); energy alignment (+1.60; gap 0.20  |
-|     |                  |               |         | from target 0.95); prefers produced/electric (+0.94);  |
-|     |                  |               |         | popularity fit (+0.68; song 71 vs target 80); era fit  |
-|     |                  |               |         | (+1.10; decade 2021 vs target 2021); mood tags overlap |
-|     |                  |               |         | ['moody'] (+0.42); lyric theme match (+0.90); language |
-|     |                  |               |         | match (+0.35)                                          |
-|   4 | Rooftop Lights   | Indigo Parade |    6.49 | genre match (+2.00); energy alignment (+1.62; gap 0.19 |
-|     |                  |               |         | from target 0.95); prefers produced/electric (+0.78);  |
-|     |                  |               |         | popularity fit (+0.65; song 66 vs target 80); era fit  |
-|     |                  |               |         | (+1.10; decade 2023 vs target 2021); language match    |
-|     |                  |               |         | (+0.35)                                                |
-|   5 | Battery Heart    | K7 Vega       |    6.04 | energy alignment (+1.86; gap 0.07 from target 0.95);   |
-|     |                  |               |         | prefers produced/electric (+1.10); popularity fit      |
-|     |                  |               |         | (+0.73; song 83 vs target 80); era fit (+1.10; decade  |
-|     |                  |               |         | 2021 vs target 2021); lyric theme match (+0.90);       |
-|     |                  |               |         | language match (+0.35)                                 |
-
-
---- Quick copy: pop profile, balanced + diversity ---
-
-|   # | Title             | Artist        |   Score | Reasons                                                 |
-|-----|-------------------|---------------|---------|---------------------------------------------------------|
-|   1 | Sunrise City      | Neon Echo     |    9.82 | genre match (+2.00); mood match (+1.00); energy         |
-|     |                   |               |         | alignment (+1.96; gap 0.02 from target 0.80); prefers   |
-|     |                   |               |         | produced/electric (+0.98); popularity fit (+0.69; song  |
-|     |                   |               |         | 78 vs target 70); era fit (+1.10; decade 2020 vs target |
-|     |                   |               |         | 2020); mood tags overlap ['euphoric', 'nostalgic']      |
-|     |                   |               |         | (+0.84); lyric theme match (+0.90); language match      |
-|     |                   |               |         | (+0.35)                                                 |
-|   2 | Rooftop Lights    | Indigo Parade |    8.29 | genre match (+2.00); mood match (+1.00); energy         |
-|     |                   |               |         | alignment (+1.92; gap 0.04 from target 0.80); prefers   |
-|     |                   |               |         | produced/electric (+0.78); popularity fit (+0.72; song  |
-|     |                   |               |         | 66 vs target 70); era fit (+1.10; decade 2023 vs target |
-|     |                   |               |         | 2020); mood tags overlap ['euphoric'] (+0.42); language |
-|     |                   |               |         | match (+0.35)                                           |
-|   3 | Gym Hero          | Max Pulse     |    7.37 | genre match (+2.00); energy alignment (+1.74; gap 0.13  |
-|     |                   |               |         | from target 0.80); prefers produced/electric (+1.14);   |
-|     |                   |               |         | popularity fit (+0.61; song 88 vs target 70); era fit   |
-|     |                   |               |         | (+1.10; decade 2022 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['euphoric'] (+0.42); language match (+0.35)            |
-|   4 | Battery Heart     | K7 Vega       |    6.37 | energy alignment (+1.84; gap 0.08 from target 0.80);    |
-|     |                   |               |         | prefers produced/electric (+1.10); popularity fit       |
-|     |                   |               |         | (+0.65; song 83 vs target 70); era fit (+1.10; decade   |
-|     |                   |               |         | 2021 vs target 2020); mood tags overlap ['euphoric']    |
-|     |                   |               |         | (+0.42); lyric theme match (+0.90); language match      |
-|     |                   |               |         | (+0.35)                                                 |
-|   5 | Samba Cartography | Lua Vermelha  |    6.14 | mood match (+1.00); energy alignment (+1.84; gap 0.08   |
-|     |                   |               |         | from target 0.80); prefers produced/electric (+1.06);   |
-|     |                   |               |         | popularity fit (+0.72; song 74 vs target 70); era fit   |
-|     |                   |               |         | (+1.10; decade 2022 vs target 2020); mood tags overlap  |
-|     |                   |               |         | ['euphoric'] (+0.42)                                    |
+=== Evaluation Summary ===
+Passed: 3/3
+Average confidence: 0.72
+Failed cases: none
 ```
 
----
+```text
+(.venv) $ python -m pytest
+=================== test session starts ====================
+platform darwin -- Python 3.14.3, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/nikhilrao/Desktop/CodePath/projects/applied-ai-system-final/applied-ai-system-project
+collected 5 items
 
-## Stuff I tried
+tests/test_agentic.py ...                            [ 60%]
+tests/test_recommender.py ..                         [100%]
 
-I temporarily changed the constants in `recommender.py`: lower genre weight, higher energy weight, ran again. The list shifted toward whoever sat near the target energy, even when another song was a “truer” genre match. Kind of what I expected.
+==================== 5 passed in 0.01s =====================
+```
 
-I also mentally removed the mood line (didn’t leave it commented out in the repo) and noticed happy vs intense pop would blur together more. So mood was doing real work for those cases.
+## Reflection
 
----
-
-## Honest limitations
-
-Eighteen fake songs is not a catalog. No lyrics, no social signals, no “you listened to this last week.” Genre substring matching is handy for a tiny dataset but could get weird if someone names genres carelessly.
-
-More detail in [`model_card.md`](model_card.md) and the informal notes in [`reflection.md`](reflection.md).
-
----
-
-## Tiny reflection
-
-Before this, recommenders felt like a black box. After, it’s mostly: define features, pick weights, sort. The part that still feels “AI-ish” to people is really just which weights and which data someone chose. I used tests to catch dumb mistakes; for whether the rankings “feel right,” I still had to use my own judgment on the fake profiles.
+This project taught me that agentic behavior can be practical even without a large model: explicit planning, validation, and retry loops already improve reliability. It also reinforced that transparency and reproducibility are critical when presenting AI outputs to users.
